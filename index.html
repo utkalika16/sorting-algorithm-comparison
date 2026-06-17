@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Empirical Complexity Dashboard: Bubble vs Merge Sort</title>
+  
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Syne:wght@500;700;800&display=swap" rel="stylesheet"/>
+  
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #090d16; --panel: #111726; --border: #1e293b;
+      --blue: #2563eb; --cyan: #06b6d4; --yellow: #f59e0b;
+      --green: #10b981; --red: #ef4444; --purple: #a855f7; --text: #f1f5f9; 
+      --muted: #64748b; --code-bg: #0b0f19;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; min-height: 100vh; padding: 2.5rem 1.5rem; }
+    
+    .project-container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+    
+    header { text-align: center; border-bottom: 1px dashed var(--border); padding-bottom: 2rem; }
+    header .badge { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--cyan); background: rgba(6, 182, 212, 0.1); border: 1px solid var(--cyan); padding: 0.3rem 1rem; border-radius: 999px; margin-bottom: 1rem; letter-spacing: 0.05em; }
+    header h1 { font-size: clamp(2rem, 4vw, 3rem); font-weight: 800; 
+    background: linear-gradient(135deg, #ffffff, var(--cyan), var(--blue)); 
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.15; }
+    header p { margin-top: 0.75rem; color: var(--muted); 
+    font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; }
+    
+    #engine-status-bar { display: flex; align-items: center; justify-content: center; gap: 0.75rem; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 0.8rem; color: var(--yellow); transition: all 0.3s ease; }
+    .spinner { width: 14px; height: 14px; border: 2px solid transparent; border-top-color: currentColor; border-radius: 50%; animation: spin 0.75s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 1.75rem; }
+    .section-title { font-size: 1.1rem; font-weight: 700; color: #fff; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .section-title::before { content: '//'; color: var(--cyan); font-family: 'JetBrains Mono'; }
+    
+    label { display: block; font-size: 0.8rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-bottom: 0.6rem; letter-spacing: 0.02em; }
+    .control-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    input { flex: 1; min-width: 280px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'JetBrains Mono', monospace; padding: 0.75rem 1.2rem; font-size: 0.9rem; outline: none; }
+    
+    .btn { padding: 0.75rem 1.75rem; border-radius: 8px; border: none; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: opacity 0.2s, transform 0.1s; }
+    .btn-primary { background: linear-gradient(135deg, var(--blue), var(--cyan)); color: #fff; }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    
+    .generator-block { margin-top: 1.5rem; padding-top: 1.2rem; border-top: 1px solid var(--border); }
+    .chips-group { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+    .chip { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; background: var(--code-bg); border: 1px solid var(--border); color: var(--cyan); padding: 0.3rem 0.8rem; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+    .chip:hover { background: var(--border); color: #fff; }
+    .chip.sorted { color: var(--green); }
+    .chip.reversed { color: var(--red); }
+    .chip.duplicates { color: var(--purple); }
+
+    .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media(max-width: 768px){ .metrics-grid { grid-template-columns: 1fr; } }
+    .metric-panel { border-radius: 12px; background: var(--code-bg); border: 1px solid var(--border); padding: 1.5rem; position: relative; overflow: hidden; }
+    .metric-panel::after { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
+    .metric-panel.bubble::after { background: var(--yellow); }
+    .metric-panel.merge::after { background: var(--cyan); }
+    
+    .metric-label { font-size: 0.8rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; display: flex; justify-content: space-between; }
+    .metric-value { font-family: 'JetBrains Mono', monospace; font-size: 2.2rem; font-weight: 700; margin: 0.5rem 0; letter-spacing: -0.03em; }
+    .bubble .metric-value { color: var(--yellow); }
+    .merge .metric-value { color: var(--cyan); }
+
+    .graphics-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media(max-width: 900px){ .graphics-layout { grid-template-columns: 1fr; } }
+    .chart-box { min-height: 320px; position: relative; width: 100%; display: flex; align-items: center; justify-content: center; }
+
+    .theory-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 0.5rem; }
+    @media(max-width: 768px){ .theory-grid { grid-template-columns: 1fr; } }
+    .theory-block { background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+    .theory-block h3 { font-size: 1.1rem; color: #fff; margin-bottom: 0.75rem; font-weight: 700; }
+    .theory-block p { color: #94a3b8; font-size: 0.9rem; line-height: 1.6; margin-bottom: 1rem; text-align: justify; }
+    
+    .academic-table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; text-align: left; margin-top: 0.5rem; margin-bottom: 1.5rem; }
+    .academic-table th, .academic-table td { padding: 0.6rem; border-bottom: 1px solid var(--border); }
+    .academic-table th { color: var(--muted); font-weight: 600; }
+
+    /* New Comprehensive UI Elements */
+    .verdict-banner { background: rgba(16, 185, 129, 0.05); border: 1px dashed var(--green); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .verdict-banner h3 { color: var(--green); font-size: 1.2rem; margin-bottom: 0.5rem; font-weight: 700; }
+    .verdict-banner p { font-size: 0.9rem; line-height: 1.6; color: #cbd5e1; text-align: justify; }
+    
+    .timeline { position: relative; margin-top: 1rem; padding-left: 1.5rem; border-left: 2px solid var(--border); }
+    .timeline-item { position: relative; margin-bottom: 1.5rem; }
+    .timeline-item::before { content: ''; position: absolute; left: calc(-1.5rem - 5px); top: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); }
+    .timeline-year { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 700; color: var(--cyan); margin-bottom: 0.2rem; }
+    .timeline-desc { font-size: 0.88rem; line-height: 1.5; color: #94a3b8; text-align: justify; }
+  </style>
+</head>
+<body>
+
+<div class="project-container">
+
+  <header>
+    <div class="badge">COMPUTATIONAL ALGORITHM ANALYTICS SUITE</div>
+    <h1>Empirical Complexity Evaluation:<br/>Bubble Sort vs. Merge Sort</h1>
+    <p>Asynchronous Benchmarking Engine Using Python WebAssembly Time Profilers</p>
+  </header>
+
+  <div id="engine-status-bar">
+    <div class="spinner" id="engine-spinner"></div>
+    <span id="engine-text">Compiling Core WebAssembly Container & Launching Python Native Runtime...</span>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Advanced Data Ingestion Module</div>
+    <label>ENTER CUSTOM NUMERICAL MANUALLY OR GENERATE COMPLEX SYSTEM DISTRIBUTIONS BELOW</label>
+    <div class="control-row">
+      <input type="text" id="numInput" placeholder="Parse format: 45, 12, 89, 7..." disabled/>
+      <button class="btn btn-primary" id="executeBtn" onclick="runPythonProfilingLoop()" disabled>Execute Profiles</button>
+    </div>
+    
+    <div class="generator-block">
+      <div class="chips-group">
+        <span style="font-family:'JetBrains Mono'; font-size:0.75rem; color:var(--muted); min-width:140px;">Standard Random:</span>
+        <span class="chip" onclick="createDataset('random', 100)">Unsorted (n=100)</span>
+        <span class="chip" onclick="createDataset('random', 500)">Unsorted (n=500)</span>
+        <span class="chip" onclick="createDataset('random', 1000)">Unsorted (n=1000)</span>
+      </div>
+      <div class="chips-group">
+        <span style="font-family:'JetBrains Mono'; font-size:0.75rem; color:var(--green); min-width:140px;">Best Case (Sorted):</span>
+        <span class="chip sorted" onclick="createDataset('sorted', 100)">Pre-Sorted (n=100)</span>
+        <span class="chip sorted" onclick="createDataset('sorted', 500)">Pre-Sorted (n=500)</span>
+        <span class="chip sorted" onclick="createDataset('sorted', 1000)">Pre-Sorted (n=1000)</span>
+      </div>
+      <div class="chips-group">
+        <span style="font-family:'JetBrains Mono'; font-size:0.75rem; color:var(--red); min-width:140px;">Worst Case (Inverted):</span>
+        <span class="chip reversed" onclick="createDataset('reversed', 100)">Inverted (n=100)</span>
+        <span class="chip reversed" onclick="createDataset('reversed', 500)">Inverted (n=500)</span>
+        <span class="chip reversed" onclick="createDataset('reversed', 1000)">Inverted (n=1000)</span>
+      </div>
+      <div class="chips-group">
+        <span style="font-family:'JetBrains Mono'; font-size:0.75rem; color:var(--purple); min-width:140px;">Highly Repetitive:</span>
+        <span class="chip duplicates" onclick="createDataset('duplicates', 100)">Many Duplicates (n=100)</span>
+        <span class="chip duplicates" onclick="createDataset('duplicates', 500)">Many Duplicates (n=500)</span>
+        <span class="chip duplicates" onclick="createDataset('duplicates', 1000)">Many Duplicates (n=1000)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Empirical Diagnostics Output</div>
+    <div class="metrics-grid">
+      <div class="metric-panel bubble">
+        <div class="metric-label"><span>BUBBLE SORT RUNTIME</span><span>O(n²) Base</span></div>
+        <div class="metric-value" id="bubble-time-ms">—</div>
+        <div class="metric-label">Calculated in milliseconds via Python module</div>
+      </div>
+      <div class="metric-panel merge">
+        <div class="metric-label"><span>MERGE SORT RUNTIME</span><span>O(n log n) Base</span></div>
+        <div class="metric-value" id="merge-time-ms">—</div>
+        <div class="metric-label">Calculated in milliseconds via Python module</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Graphical Diagnostics Analytics Node</div>
+    <div class="graphics-layout">
+      <div>
+        <label style="text-align:center; display:block; font-weight:600;">GRAPH 1: EXPERIMENTAL EXECUTION METRICS (MILLISECONDS)</label>
+        <div class="chart-box"><canvas id="barPerformanceChart"></canvas></div>
+      </div>
+      <div>
+        <label style="text-align:center; display:block; font-weight:600;">GRAPH 2: THEORETICAL ASYMPTOTIC SPECTRA LABELS</label>
+        <div class="chart-box"><canvas id="asymptoticLineChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Analytical Framework & Comparative History</div>
+    
+    <div class="verdict-banner">
+      <h3>Definitive Efficiency Winner: Merge Sort</h3>
+      <p>
+        In generalized computational systems, <strong>Merge Sort is fundamentally optimal</strong>. While Bubble Sort maintains an edge-case memory footprint advantage ($\mathcal{O}(1)$ auxiliary space versus Merge Sort's $\mathcal{O}(n)$ clone overhead) and executes linear $\mathcal{O}(n)$ passes on perfectly structured pre-sorted data, it degrades catastrophically under randomization. Merge Sort yields an invariant, predictable $\mathcal{O}(n \log n)$ operation bound across all layout states, guaranteeing highly scalable performance profiles.
+      </p>
+    </div>
+
+    <label>ASYMPTOTIC ALGORITHMIC SCALING PROFILE</label>
+    <table class="academic-table">
+      <thead>
+        <tr>
+          <th>Array Size ($n$)</th>
+          <th>Bubble Operations ($n^2$)</th>
+          <th>Merge Operations ($n \log_2 n$)</th>
+          <th>Theoretical Speed Multiplier Gain</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>10</td>
+          <td>100</td>
+          <td>~33</td>
+          <td style="color:var(--yellow);">~3x faster</td>
+        </tr>
+        <tr>
+          <td>100</td>
+          <td>10,000</td>
+          <td>~664</td>
+          <td style="color:var(--yellow);">~15x faster</td>
+        </tr>
+        <tr>
+          <td>1,000</td>
+          <td>1,000,000</td>
+          <td>~9,965</td>
+          <td style="color:var(--cyan); font-weight:600;">~100x faster</td>
+        </tr>
+        <tr>
+          <td>10,000</td>
+          <td>100,000,000</td>
+          <td>~132,877</td>
+          <td style="color:var(--cyan); font-weight:600;">~750x faster</td>
+        </tr>
+        <tr>
+          <td>1,000,000</td>
+          <td>1,000,000,000,000</td>
+          <td>~19,931,568</td>
+          <td style="color:var(--green); font-weight:700;">~50,000x faster</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="theory-grid">
+      <div class="theory-block">
+        <h3>Bubble Sort: Structural Analysis</h3>
+        <p>
+          Bubble sort relies heavily on structural array patterns. In **Best Case (Pre-Sorted Data)** states, an optimized iteration sequence can terminate in an $O(n)$ verification sweep. However, in **Worst Case (Inverted)** environments, it undergoes maximal swap permutations, degrading rapidly to $O(n^2)$.
+        </p>
+        <table class="academic-table">
+          <tr><th>Best-Case Complexity</th><td>O(n)</td></tr>
+          <tr><th>Worst-Case Complexity</th><td>O(n^2)</td></tr>
+          <tr><th>Memory Footprint</th><td>O(1) Space</td></tr>
+        </table>
+      </div>
+      <div class="theory-block">
+        <h3>Merge Sort: Structural Analysis</h3>
+        <p>
+          Merge Sort behaves identically regardless of array architecture or sorting distribution states. Whether data arrays are randomized, pre-sorted, or heavily inverted, its divide-and-conquer processing operations follow an unyielding structural breakdown tree resulting in strict $O(n \log n)$ behaviors.
+        </p>
+        <table class="academic-table">
+          <tr><th>Best-Case Complexity</th><td>O(n \log n)</td></tr>
+          <tr><th>Worst-Case Complexity</th><td>O(n \log n)</td></tr>
+          <tr><th>Memory Footprint</th><td>O(n) Space</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top: 2rem;">
+      <label>CHRONOLOGICAL HISTORY OF PARADIGM COMPARISONS</label>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-year">1945 — Von Neumann Formalizes Divide-and-Conquer</div>
+          <div class="timeline-desc">John von Neumann designs Merge Sort to engineer around tape memory bottlenecks on early electronic systems like EDVAC. Splitting datasets down into micro-structures drastically reduced physical mechanical drive-head traversal distances.</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-year">1956 — The Isolation of Bubble Sort Complexity</div>
+          <div class="timeline-desc">The specific element-swapping methodology of Bubble Sort is detailed systematically by K. H. Hosking and Edward Friend. Academic systems engineering quickly marks it as inefficient for larger scale processing due to intense memory-write frequency overhead.</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-year">1973 — Knuth Solidifies the Academic Verdict</div>
+          <div class="timeline-desc">In Volume 3 of <em>The Art of Computer Programming</em>, Donald Knuth permanently establishes the performance victory of divide-and-conquer architectures over iterative variants, stating that bubble sort has nothing to recommend it except a catchy name.</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-year">Modern Era — Evolution into Timsort Architectures</div>
+          <div class="timeline-desc">Pure structural exchange models have been deprecated completely out of engineering deployment. Merge Sort logic lives on inside <strong>Timsort</strong> (Tim Peters, 2002), which blends Merge and Insertion sort to serve as the default native baseline array sorting engine in CPython and Java.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  let pyodideCoreRuntime = null;
+  let barPerformanceChart = null;
+  let asymptoticLineChart = null;
+
+  // Set up the internal Pyodide bridge context layout
+  async function bootPythonSystems() {
+    try {
+      pyodideCoreRuntime = await loadPyodide();
+      
+      // Inject standard algorithms with optimization metrics check flags
+      await pyodideCoreRuntime.runPython(`
+import time
+import json
+
+def py_bubble_sort(arr):
+    working_list = list(arr)
+    length = len(working_list)
+    for index_i in range(length):
+        swapped = False
+        for index_j in range(0, length - index_i - 1):
+            if working_list[index_j] > working_list[index_j + 1]:
+                working_list[index_j], working_list[index_j + 1] = working_list[index_j + 1], working_list[index_j]
+                swapped = True
+        if not swapped: # Adaptive evaluation path optimization
+            break
+    return working_list
+
+def py_merge_sort(arr):
+    if len(arr) <= 1:
+        return arr
+    mid_point = len(arr) // 2
+    left_branch = py_merge_sort(arr[:mid_point])
+    right_branch = py_merge_sort(arr[mid_point:])
+    
+    merged_output = []
+    pointer_l = pointer_r = 0
+    while pointer_l < len(left_branch) and pointer_r < len(right_branch):
+        if left_branch[pointer_l] <= right_branch[pointer_r]:
+            merged_output.append(left_branch[pointer_l])
+            pointer_l += 1
+        else:
+            merged_output.append(right_branch[pointer_r])
+            pointer_r += 1
+    merged_output.extend(left_branch[pointer_l:])
+    merged_output.extend(right_branch[pointer_r:])
+    return merged_output
+
+def evaluate_execution_profiles(target_array):
+    mark_b0 = time.perf_counter()
+    py_bubble_sort(target_array)
+    total_bubble_ms = (time.perf_counter() - mark_b0) * 1000.0
+    
+    mark_m0 = time.perf_counter()
+    py_merge_sort(target_array)
+    total_merge_ms = (time.perf_counter() - mark_m0) * 1000.0
+    
+    return json.dumps([total_bubble_ms, total_merge_ms])
+      `);
+
+      document.getElementById('engine-spinner').style.display = 'none';
+      document.getElementById('engine-text').textContent = 'Native Python Runtime Kernel Engine Live via WASM Core Integration ✓';
+      document.getElementById('engine-status-bar').style.color = 'var(--green)';
+      document.getElementById('numInput').disabled = false;
+      document.getElementById('executeBtn').disabled = false;
+      
+      instantiateDiagnosticCharts();
+    } catch (e) {
+      document.getElementById('engine-text').textContent = 'Fatal Error compiling WebAssembly kernel runtime layers.';
+      console.error(e);
+    }
+  }
+
+  // Multi-state structural dataset generator loops
+  function createDataset(type, count) {
+    let dataset = [];
+    if (type === 'random') {
+      dataset = Array.from({length: count}, () => Math.floor(Math.random() * 10000));
+    } else if (type === 'sorted') {
+      dataset = Array.from({length: count}, (_, idx) => idx * 10);
+    } else if (type === 'reversed') {
+      dataset = Array.from({length: count}, (_, idx) => (count - idx) * 10);
+    } else if (type === 'duplicates') {
+      const smallPool = [10, 45, 90, 120, 555];
+      dataset = Array.from({length: count}, () => smallPool[Math.floor(Math.random() * smallPool.length)]);
+    }
+    document.getElementById('numInput').value = dataset.join(', ');
+  }
+
+  async function runPythonProfilingLoop() {
+    const rawValues = document.getElementById('numInput').value;
+    if(!rawValues.trim()) return;
+
+    const cleanedArray = rawValues.split(',').map(item => parseFloat(item.trim())).filter(val => !isNaN(val));
+    if(cleanedArray.length < 2) return;
+
+    document.getElementById('executeBtn').disabled = true;
+    document.getElementById('engine-text').textContent = `Evaluating distributions for size n=${cleanedArray.length}...`;
+    
+    setTimeout(async () => {
+      try {
+        // --- THIS LINE BINDS HTML/JS VALUE STRUCTS INTO GLOBAL PYTHON SPACE ---
+        pyodideCoreRuntime.globals.set("active_js_buffer", cleanedArray);
+        
+        let payloadOutput = await pyodideCoreRuntime.runPython(`
+          python_native_array = active_js_buffer.to_py()
+          evaluate_execution_profiles(python_native_array)
+        `);
+
+        const [bubbleExecutionTime, mergeExecutionTime] = JSON.parse(payloadOutput);
+
+        document.getElementById('bubble-time-ms').textContent = `${bubbleExecutionTime.toFixed(4)} ms`;
+        document.getElementById('merge-time-ms').textContent = `${mergeExecutionTime.toFixed(4)} ms`;
+
+        if (barPerformanceChart) {
+          barPerformanceChart.data.datasets[0].data = [bubbleExecutionTime, mergeExecutionTime];
+          barPerformanceChart.update();
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        document.getElementById('executeBtn').disabled = false;
+        document.getElementById('engine-text').textContent = 'Native Python Runtime Kernel Engine Live via WASM Core Integration ✓';
+      }
+    }, 40);
+  }
+
+  function instantiateDiagnosticCharts() {
+    const ctxBar = document.getElementById('barPerformanceChart').getContext('2d');
+    const ctxLine = document.getElementById('asymptoticLineChart').getContext('2d');
+
+    barPerformanceChart = new Chart(ctxBar, {
+      type: 'bar',
+      data: {
+        labels: ['Bubble Sort', 'Merge Sort'],
+        datasets: [{
+          data: [0, 0],
+          backgroundColor: ['#f59e0b', '#06b6d4'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+          x: { grid: { display: false }, ticks: { color: '#f1f5f9' } }
+        }
+      }
+    });
+
+    const curveLabels = [10, 50, 100, 200, 500, 1000];
+    asymptoticLineChart = new Chart(ctxLine, {
+      type: 'line',
+      data: {
+        labels: curveLabels,
+        datasets: [
+          { label: 'O(n²) Bubble Trend Curve', data: curveLabels.map(n => Math.pow(n, 2)), borderColor: '#f59e0b', fill: false, tension: 0.2 },
+          { label: 'O(n log n) Merge Trend Curve', data: curveLabels.map(n => n * Math.log2(n)), borderColor: '#06b6d4', fill: false, tension: 0.2 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#f1f5f9' } } },
+        scales: {
+          y: { grid: { color: '#1e293b' }, ticks: { display: false } },
+          x: { grid: { display: false }, ticks: { color: '#64748b' } }
+        }
+      }
+    });
+  }
+
+  window.addEventListener('DOMContentLoaded', bootPythonSystems);
+</script>
+</body>
+</html>
